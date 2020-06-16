@@ -78,8 +78,9 @@ SIZE		:= $(PREFIX)-size
 OBJDUMP		:= $(PREFIX)-objdump
 GDB		:= $(PREFIX)-gdb
 ############################################################################
+STFLASH		= $(shell which st-flash)
 ###############################################################################
-OPT		:= -Os -g
+OPT		:= -O0 -g
 CSTD		?= -std=c99
 
 #######  C flags #############################
@@ -131,10 +132,13 @@ OPENCM3_LDDIR   := $(addprefix -L$(OPENCM3_DIR)/,$(OPENCM3_LD))
 SRC   := $(foreach sdir,$(SRC_DIR),$(wildcard $(sdir)/*.c))
 OBJ   := $(patsubst %.c,$(BUILD_BASE)/%.o,$(SRC))
 
-LIBS    := $(addprefix -l,$(LIBS))
-HEX_OUT   := $(addprefix $(FW_BASE)/,$(TARGET).hex)
-TARGET_OUT  := $(addprefix $(BUILD_BASE)/,$(TARGET).elf)
+LIBS    	:= $(addprefix -l,$(LIBS))
+HEX_OUT   	:= $(addprefix $(FW_BASE)/,$(TARGET).hex)
+BIN_OUT		:= $(addprefix $(FW_BASE)/,$(TARGET).bin)
 MAP_OUT		:= $(addprefix $(BUILD_BASE)/,$(TARGET).map)
+
+TARGET_OUT  := $(addprefix $(BUILD_BASE)/,$(TARGET).elf)
+
 INCDIR  := $(addprefix -I.,$(SRC_DIR))
 #EXTRA_INCDIR  := $(addprefix -I.,$(EXTRA_INCDIR))
 #MODULE_INCDIR := $(addsuffix /include,$(INCDIR))
@@ -161,7 +165,8 @@ endef
 
 .PHONY: all checkdirs clean
 
-all: checkdirs $(HEX_OUT) $(TARGET_OUT) 
+all: checkdirs $(TARGET_OUT) $(HEX_OUT) $(BIN_OUT)
+
 flash-stlink:
 	$(OPENOCD) 	-s $(OPENOCD_DIR)\
 			   	-f interface/stlink-v2.cfg\
@@ -178,6 +183,8 @@ flash-jlink:
 	-c "transport select swd" \
 	-f target/stm32f1x.cfg \
 	-c "program $(HEX_OUT) verify reset exit"
+flash:	$(BIN_OUT)
+	$(STFLASH) $(FLASHSIZE) write $(BIN_OUT) 0x8000000
 
 debug:
 	$(OPENOCD) -f $(OPENOCD_DIR)/scripts/interface/stlink-v2.cfg -f $(OPENOCD_DIR)/scripts/target/stm32f1x.cfg
@@ -185,14 +192,20 @@ debug:
 	#-f interface/st-linkv2.cfg \
 	#-f target/stm32f1x.cfg
 
+$(BIN_OUT): $(TARGET_OUT)
+	$(vecho) "OBJCOPY $@"
+	$(Q) $(OBJCOPY) -Obinary $(TARGET_OUT) $@
+	$(Q) $(SIZE) $(TARGET_OUT)
+
 $(HEX_OUT): $(TARGET_OUT)
 	$(vecho) "OBJCOPY $@"
 	$(Q) $(OBJCOPY) -Oihex $(TARGET_OUT) $@
 	$(Q) $(SIZE) $(TARGET_OUT)
 
-$(TARGET_OUT) : $(OBJ)
+$(TARGET_OUT) $(MAP_OUT): $(OBJ)
 	$(vecho) "LD $@"
 	$(Q) $(LD) $(OPENCM3_LDDIR) $(LDFLAGS) $(ARCH_FLAGS) $(OBJ) -Wl,--start-group $(LIBS) -Wl,--end-group -o $@
+	
 	
 checkdirs: $(BUILD_DIR) $(FW_BASE) checkcm3
 
@@ -214,10 +227,11 @@ clean:
 	$(Q) rm -rf $(BUILD_DIR)
 	$(Q) rm -rf $(BUILD_BASE)
 	$(Q) rm -rf $(FW_BASE)
+	rm -f *.map 
 
 
 $(foreach bdir,$(BUILD_DIR),$(eval $(call compile-objects,$(bdir))))
 
 
-abc :
-	echo $(OPENOCD)
+
+	
